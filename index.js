@@ -1,7 +1,18 @@
 const express = require('express');
 const admin = require('firebase-admin');
 const cors = require('cors');
-const serviceAccount = require('./serviceAccountKey.json');
+
+let serviceAccount;
+
+if (process.env.FIREBASE_KEY) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
+} else {
+    try {
+        serviceAccount = require('./serviceAccountKey.json');
+    } catch (e) {
+        console.error('No se encontró la llave de Firebase.');
+    }
+}
 
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
