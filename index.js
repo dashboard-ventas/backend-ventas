@@ -1,6 +1,7 @@
 const express = require('express');
 const admin = require('firebase-admin');
 const cors = require('cors');
+require('dotenv').config();
 
 let serviceAccount;
 
@@ -46,12 +47,12 @@ app.post('/api/ventas', async (req, res) => {
     try {
         const { fecha, monto, cantidad, marcaId, categoriaId } = req.body;
 
-        if (!monto || !marcaId || !categoriaId) {
+        if (!fecha || !monto || !marcaId || !categoriaId) {
             return res.status(400).json({ msg: "Faltan datos obligatorios" });
         }
 
         const nuevaVenta = {
-            fecha: fecha || new Date().toISOString(),
+            fecha: fecha,
             monto: Number(monto),
             cantidad: Number(cantidad),
             marcaId,
@@ -68,7 +69,7 @@ app.post('/api/ventas', async (req, res) => {
 
 app.get('/api/ventas', async (req, res) => {
     try {
-        const snapshot = await db.collection('ventas').orderBy('fecha', 'asc').get();
+        const snapshot = await db.collection('ventas').orderBy('fecha', 'desc').get();
 
         const ventas = snapshot.docs.map(doc => ({
             id: doc.id,
@@ -80,6 +81,25 @@ app.get('/api/ventas', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+app.put('/api/marcas/:id/meta', async (req, res) => {
+    try {
+        const { meta } = req.body;
+        const marcaId = req.params.id;
+
+        if (meta === undefined || meta < 0) {
+            return res.status(400).json({msg: "Meta inválida"});
+        }
+
+        await db.collection('marcas').doc(marcaId).update({
+            meta: Number(meta)
+        });
+
+        res.json({ msg: "Meta actualizada" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+})
 
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en http://localhost:${PORT}`);
