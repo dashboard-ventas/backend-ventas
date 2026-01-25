@@ -4,7 +4,6 @@ const cors = require('cors');
 require('dotenv').config();
 
 let serviceAccount;
-
 if (process.env.FIREBASE_KEY) {
     serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
 } else {
@@ -47,63 +46,102 @@ app.get('/api/config', async (req, res) => {
     }
 });
 
-app.post('/api/ventas', async (req, res) => {
+app.get('/api/desempeno', async (req, res) => {
     try {
-        const { fecha, monto, cantidad, marcaId, categoriaId } = req.body;
+        const anio = parseInt(req.query.anio) || new Date().getFullYear();
 
-        if (!fecha || !monto || !marcaId || !categoriaId) {
-            return res.status(400).json({ msg: "Faltan datos obligatorios" });
-        }
+        const snapshot = await db.collection('desempeno')
+            .where('anio', '==', anio)
+            .get();
 
-        const nuevaVenta = {
-            fecha: fecha,
-            monto: Number(monto),
-            cantidad: Number(cantidad),
-            marcaId,
-            categoriaId,
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
-        };
-
-        const docRef = await db.collection('ventas').add(nuevaVenta);
-        res.json({ id: docRef.id, msg: "Venta registrada con éxito" });
+        const data = snapshot.docs.map(doc => doc.data());
+        res.json({ data });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-app.get('/api/ventas', async (req, res) => {
+app.post('/api/desempeno/batch', async (req, res) => {
     try {
-        const snapshot = await db.collection('ventas').orderBy('fecha', 'desc').get();
+        const { cambios } = req.body;
 
-        const ventas = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
+        if (!cambios || !Array.isArray(cambios)) {
+            return res.status(400).json({ msg: "Datos inválidos" });
+        }
 
-        res.json(ventas);
+        const batch = db.batch();
+        const historialRef = db.collection('historial_cambios');
+
+        for (const item of cambios) {
+            const docId = `${item.marcaId}_${item.anio}_${item.mes}`;
+            const docRef = db.collection('desempeno').doc(docId);
+
+            const docSnap = await docRef.get();
+            const prevData = docSnap.exist ? docSnap.data() : { ventaReal: 0, unidades: 0 };
+
+            const newData = {
+                marcaId: item.marcaId,
+                anio: item.anio,
+                mes: item.mes,
+                ventaReal: Number(item.ventaReal || 0),
+                unidades: Number(item.unidades || 0),
+                meta: Number(item.meta || 0),
+            };
+
+            const camposAComparar = [
+                { key: 'ventaReal', label: 'Venta Real' },
+                { key: 'unidades', label: 'Unidades' },
+                { key: 'meta', label: 'Meta' },
+            ];
+
+            camposAComparar.forEach(campo => {
+                const valorAnt = Number(prevData[campo.key] || 0);
+                const valorNue = Number(newData[campo.key]);
+
+                if (valorAnt !== valorNue) {
+                    const logDoc = historialRef.doc();
+                    batch.set(logDoc, {
+                        fecha: admin.firestore.FieldValue.serverTimestamp(),
+                        marca: item.nombreMarca || 'Desconocida',
+                        mesAfectado: item.mes,
+                        anio: item.anio,
+                        campo: campo.label,
+                        valorAnterior: valorAnt,
+                        valorNuevo: valorNue
+                    });
+                }
+            });
+            batch.set(docRef, newData, { merge: true });
+        }
+
+        await batch.commit();
+        res.json({ msg: "Cambios guardados" });
     } catch (error) {
+        console.log(error);
         res.status(500).json({ error: error.message });
     }
 });
 
-app.put('/api/marcas/:id/meta', async (req, res) => {
+app.get('/api/historial', async (req, res) => {
     try {
-        const { meta } = req.body;
-        const marcaId = req.params.id;
+        const snapshot = await db.collection('historial_cambios')
+            .orderBy('fecha', 'desc')
+            .limit(50)
+            .get();
 
-        if (meta === undefined || meta < 0) {
-            return res.status(400).json({msg: "Meta inválida"});
-        }
-
-        await db.collection('marcas').doc(marcaId).update({
-            meta: Number(meta)
+        const logs = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                ...data,
+                fecha: data.fecha ? data.fecha.toDate().toISOString() : new Date().toISOString()
+            };
         });
-
-        res.json({ msg: "Meta actualizada" });
+        res.json(logs);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-})
+});
 
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en http://localhost:${PORT}`);
