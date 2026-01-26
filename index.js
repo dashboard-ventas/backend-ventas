@@ -77,7 +77,8 @@ app.post('/api/desempeno/batch', async (req, res) => {
             const docRef = db.collection('desempeno').doc(docId);
 
             const docSnap = await docRef.get();
-            const prevData = docSnap.exist ? docSnap.data() : { ventaReal: 0, unidades: 0 };
+
+            const prevData = docSnap.exists ? docSnap.data() : { ventaReal: 0, unidades: 0, meta: 0 };
 
             const newData = {
                 marcaId: item.marcaId,
@@ -111,6 +112,7 @@ app.post('/api/desempeno/batch', async (req, res) => {
                     });
                 }
             });
+
             batch.set(docRef, newData, { merge: true });
         }
 
@@ -126,7 +128,6 @@ app.get('/api/historial', async (req, res) => {
     try {
         const snapshot = await db.collection('historial_cambios')
             .orderBy('fecha', 'desc')
-            .limit(50)
             .get();
 
         const logs = snapshot.docs.map(doc => {
